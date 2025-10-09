@@ -1,0 +1,19 @@
+[package]
+name = "cri-archive-lib"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license-file.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+bitflags = "2"
+
+[features]
+# CPK targeted parser
+cpk = []
+dangerous = []
+# Fully parse CRI Table data (if disabled, irrelevant data is skipped)
+full_table = []
