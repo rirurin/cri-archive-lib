@@ -12,8 +12,22 @@ version.workspace = true
 bitflags = "2"
 
 [features]
+acb = []
+acf = []
+awb = []
 # CPK targeted parser
 cpk = []
+
+cpk_compression_layla = ["cpk"]
+cpk_encryption_p5r = ["cpk"]
+cpk_encryption_table = ["cpk"]
+
+cpk_full = [
+    "cpk_compression_layla",
+    "cpk_encryption_p5r",
+    "cpk_encryption_table"
+]
+
 dangerous = []
 # Fully parse CRI Table data (if disabled, irrelevant data is skipped)
 full_table = []

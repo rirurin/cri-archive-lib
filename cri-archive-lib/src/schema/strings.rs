@@ -31,7 +31,7 @@ impl StringPool {
 
 pub(crate) struct StringPoolFast {
     storage: Vec<u8>,
-    pointers: HashMap<usize, NonNull<CStr>>
+    pointers: HashMap<usize, NonNull<str>>
 }
 
 impl StringPoolFast {
@@ -47,9 +47,9 @@ impl StringPoolFast {
         while offset < pool_length {
             // CStr::from_ptr precalculates strlen, so cache the result for each string
             // Calls to StringPoolFast::get_string() will use O(1) CStr::to_str()
-            let new = unsafe { CStr::from_ptr(alloc.as_ptr().add(offset) as _) };
-            pointers.insert(offset, unsafe { NonNull::new_unchecked(&raw const *new as *mut CStr) });
-            offset += new.count_bytes() + 1;
+            let new = unsafe { CStr::from_ptr(alloc.as_ptr().add(offset) as _).to_str().unwrap() };
+            pointers.insert(offset, unsafe { NonNull::new_unchecked(&raw const *new as *mut str) });
+            offset += new.len() + 1;
         }
         Ok(Self {
             storage: alloc,
@@ -58,6 +58,6 @@ impl StringPoolFast {
     }
 
     pub(crate) fn get_string(&self, offset: u32) -> Option<&str> {
-        self.pointers.get(&(offset as usize)).map(|s| unsafe { s.as_ref().to_str().unwrap() })
+        self.pointers.get(&(offset as usize)).map(|s| unsafe { s.as_ref() })
     }
 }

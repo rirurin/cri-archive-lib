@@ -128,16 +128,16 @@ macro_rules! from_slice {
 #[macro_export]
 #[cfg(feature = "dangerous")]
 macro_rules! from_slice {
-    ($var:ident, $ty:ty, $en:ty, $ofs:literal) => {
+    ($var:expr, $ty:ty, $en:ty, $ofs:literal) => {
         <$ty>::from_slice::<$en>($var, $ofs)
     };
-        ($var:ident, $ty:ty, $ofs:literal) => {
+    ($var:expr, $ty:ty, $ofs:literal) => {
         from_slice!($var, $ty, BigEndian, $ofs)
     };
-    ($var:ident, $ty:ty) => {
+    ($var:expr, $ty:ty) => {
         from_slice!($var, $ty, BigEndian, 0)
     };
-    ($var:ident, $ty:ty, $en:ty) => {
+    ($var:expr, $ty:ty, $en:ty) => {
         from_slice!($var, $ty, $en, 0)
     };
 }
