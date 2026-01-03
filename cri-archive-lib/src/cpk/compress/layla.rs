@@ -47,7 +47,7 @@ static LAYLA_HEADER_MAGIC: u64 = 0x414C59414C495243; // CRILAYLA
 
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct LaylaHeader {
+pub struct LaylaHeader {
     magic: u64,
     uncompressed_size: u32,
     uncompressed_header_offset: u32
@@ -60,7 +60,7 @@ impl LaylaHeader {
 }
 
 #[derive(Debug)]
-pub(crate) struct LaylaDecompressorCursor {
+pub struct LaylaDecompressorCursor {
     cdata: *const u8,
     bits_left: usize
 }
@@ -77,71 +77,23 @@ impl LaylaDecompressorCursor {
         if self.bits_left != 0 {
             self.bits_left -= 1;
         } else {
+            // path only used if bits_left == 0, faster than branchless equivalent
             self.cdata = unsafe { self.cdata.sub(1) };
             self.bits_left = 7;
         }
         (unsafe { *self.cdata } >> self.bits_left) & 1 != 0
     }
 
-    /*
-    pub fn read_1(&mut self) -> bool {
-        self.cdata = unsafe { self.cdata.sub((self.bits_left == 0) as usize) };
-        self.bits_left = self.bits_left.wrapping_sub(1).min(7);
-        unsafe { (*self.cdata >> self.bits_left) & 1 != 0 }
-    }
-    */
-
-    // read_13
-    /*
-    pub fn read_13_og(&mut self) -> u32 {
-        // Reads bits, and advances stream backwards.
+    pub fn read_13(&mut self) -> u32 {
         let mut bits = 13;
-        // Read first set.
         if self.bits_left == 0 {
             self.cdata = unsafe { self.cdata.sub(1) };
             self.bits_left = 8;
         }
-        let first = unsafe { *self.cdata } as u32;
-        let bit_round = bits.min(self.bits_left);
-        let mut res = (first >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1);
-        bits -= bit_round;
-        // bitsleft == 0 is guaranteed, so we reset to 8
-        self.cdata = unsafe { self.cdata.sub(1) };
-        self.bits_left = 8;
-        let second = unsafe { *self.cdata } as u32;
-        // Read more from next byte.
-        let bit_round = bits.min(self.bits_left);
-        res <<= bit_round;
-        res |= (second >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1);
-        bits -= bit_round;
-        // It's possible, we might need 3 reads in some cases so we keep unrolling
-        if bits == 0 || bits > 13 {
-            self.bits_left -= bit_round;
-            return res;
-        }
-        // Read byte if needed
-        self.cdata = unsafe { self.cdata.sub(1) };
-        self.bits_left = 8;
-        let third = unsafe { *self.cdata } as u32;
-        // If there are more to read from next byte.
-        let bit_round = bits.min(self.bits_left);
-        res <<= bit_round;
-        // let val = 0x0 >> (self.bits_left - bit_round);
-        // println!("third: {}, bits_left: {}, bit_round: {} = {}", third, self.bits_left, bit_round, val);
-        res |= (third >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1);
-        res
-    }
-    */
-
-    pub fn read_13(&mut self) -> u32 {
-        let mut bits = 13;
-        self.cdata = unsafe { self.cdata.sub((self.bits_left == 0) as usize) };
-        if self.bits_left == 0 { self.bits_left = 8; }
         let mut res = 0;
         for _ in 0..3 {
             let bit_round = bits.min(self.bits_left);
-            res <<= bit_round;
-            res |= ((unsafe { *self.cdata } as u32) >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1);
+            res = (res << bit_round) | (((unsafe { *self.cdata } as u32) >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1));
             bits -= bit_round;
             // Early return if 13 bits cover 2 bytes
             if bits == 0 {
@@ -171,9 +123,7 @@ impl LaylaDecompressorCursor {
         let new_byte = self.bits_left == 0;
         // fast/common path
         if self.bits_left >= Self::READ_2_BITS || new_byte {
-            // Branchless Programming
-            self.bits_left = self.bits_left.wrapping_add(
-                (new_byte as usize * 8).wrapping_sub(Self::READ_2_BITS));
+            self.bits_left = if new_byte { 6 } else { self.bits_left - 2 };
             self.cdata = unsafe { self.cdata.sub(new_byte as usize) };
             // We removed from bits_left above, so we don't subtract here. This is necessary because branchless.
             return unsafe { (*self.cdata >> self.bits_left) & 3 };
@@ -192,8 +142,7 @@ impl LaylaDecompressorCursor {
         let mut res = 0;
         for _ in 0..2 {
             let bit_round = bits.min(self.bits_left);
-            res <<= bit_round;
-            res |= (unsafe { *self.cdata } >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1);
+            res = (res << bit_round) | ((unsafe { *self.cdata } >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1));
             bits -= bit_round;
             // Early return if n bits cover 1 byte
             if bits == 0 {

@@ -41,7 +41,7 @@ impl TableDecryptor {
         Ok(from_slice!(bytes, u32, NativeEndian))
     }
 
-    pub fn decrypt_utf(input: &mut [u8]) -> Vec<u8> {
+    pub fn decrypt_utf(input: &[u8]) -> Vec<u8> {
         let mut result = Vec::with_capacity(input.len());
         unsafe { copy_nonoverlapping(input.as_ptr(), result.as_mut_ptr(), result.len()) };
         Self::decrypt_utf_in_place(&mut result);
