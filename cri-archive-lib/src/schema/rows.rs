@@ -1,8 +1,9 @@
 use std::error::Error;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::MaybeUninit;
-use std::ops::Index;
-use crate::schema::columns::{Column, ColumnType};
+use std::ops::{Deref, DerefMut, Index};
+use std::ptr::NonNull;
+use crate::schema::columns::{Column, ColumnFlag, ColumnType};
 use crate::schema::header::TableHeader;
 use crate::utils::endianness::BigEndian;
 use crate::utils::slice::FromSlice;
@@ -10,6 +11,7 @@ use crate::from_slice;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum RowValue {
+    None,
     Byte(u8),
     SByte(i8),
     UInt16(u16),
@@ -39,51 +41,77 @@ impl DataValue {
 }
 
 #[derive(Debug)]
-pub(crate) struct RowOffsets<'a> {
-    columns: &'a [Column],
-    rows: Vec<RowValue>
-}
+pub(crate) struct Row(Vec<RowValue>);
 
-impl<'a> RowOffsets<'a> {
-    pub(crate) fn new<C: Read + Seek>(handle: &mut C, header: &TableHeader,
-        columns: &'a [Column]) -> Result<Self, Box<dyn Error>> {
-        handle.seek(SeekFrom::Start(header.rows_offset as u64))?;
-        let mut rows = vec![];
-        let mut field: MaybeUninit<[u8; 0x10]> = MaybeUninit::uninit();
-        for c in columns {
-            let ctype = c.get_value().get_type();
-            let slice = unsafe { std::slice::from_raw_parts_mut(
-                field.as_mut_ptr() as *mut u8, ctype.get_size() as usize) };
-            handle.read(slice)?;
+impl Deref for Row {
+    type Target = Vec<RowValue>;
 
-            rows.push(match c.get_value().get_type() {
-                ColumnType::Byte => RowValue::Byte(unsafe { field.assume_init_ref()[0] }),
-                ColumnType::SByte => RowValue::SByte(unsafe { field.assume_init_ref()[0] as i8 }),
-                ColumnType::UInt16 => RowValue::UInt16(from_slice!(unsafe { &field.assume_init_ref()[0..2] }, u16)),
-                ColumnType::Int16 => RowValue::Int16(from_slice!(unsafe { &field.assume_init_ref()[0..2] }, i16)),
-                ColumnType::UInt32 => RowValue::UInt32(from_slice!(unsafe { &field.assume_init_ref()[0..4] }, u32)),
-                ColumnType::Int32 => RowValue::Int32(from_slice!(unsafe { &field.assume_init_ref()[0..4] }, i32)),
-                ColumnType::Single => RowValue::Single(from_slice!(unsafe { &field.assume_init_ref()[0..4] }, f32)),
-                ColumnType::String => RowValue::String(from_slice!(unsafe { &field.assume_init_ref()[0..4] }, u32)),
-                ColumnType::UInt64 => RowValue::UInt64(from_slice!(unsafe { &field.assume_init_ref()[0..8] }, u64)),
-                ColumnType::Int64 => RowValue::Int64(from_slice!(unsafe { &field.assume_init_ref()[0..8] }, i64)),
-                ColumnType::Double => RowValue::Double(from_slice!(unsafe { &field.assume_init_ref()[0..8] }, f64)),
-                ColumnType::Data => RowValue::Data(DataValue {
-                    offset: from_slice!(unsafe { &field.assume_init_ref()[0..4] }, u32),
-                    length: from_slice!(unsafe { &field.assume_init_ref()[4..8] }, u32),
-                }),
-                ColumnType::Guid => todo!()
-            });
-            // handle.seek(SeekFrom::Current(c.get_value().get_type().get_size() as i64))?;
-        }
-        Ok(Self { columns, rows })
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl<'a> Index<usize> for RowOffsets<'a> {
+impl DerefMut for Row {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Row {
+    pub(crate) fn new_list<C: Read + Seek>(handle: &mut C, header: &TableHeader, column_def: &[Column])
+        -> Result<Vec<Self>, Box<dyn Error>> {
+        handle.seek(SeekFrom::Start(header.rows_offset() as u64))?;
+        let mut rows = Vec::with_capacity(header.row_count() as usize);
+        for _ in 0..header.row_count() {
+            rows.push(Self::create_row(handle, column_def)?);
+        }
+        Ok(rows)
+    }
+
+    fn create_row<C: Read + Seek>(handle: &mut C, column_def: &[Column]) -> Result<Self, Box<dyn Error>> {
+        let mut column_data = vec![];
+        let mut field: MaybeUninit<[u8; 0x10]> = MaybeUninit::uninit();
+        for c in column_def {
+            let ctype = c.get_value().get_type();
+            // Handle null objects
+            if !c.get_value().get_flags().contains(ColumnFlag::ROW_STORAGE) {
+                column_data.push(RowValue::None);
+                continue;
+            }
+            let slice = unsafe { std::slice::from_raw_parts_mut(
+                field.as_mut_ptr() as *mut u8, ctype.get_size() as usize) };
+            handle.read_exact(slice)?;
+            column_data.push(Self::into_row_value(ctype, unsafe { field.assume_init_ref() }));
+        }
+        Ok(Self(column_data))
+    }
+
+    pub(crate) fn into_row_value(ctype: ColumnType, slice: &[u8]) -> RowValue {
+        match ctype {
+            ColumnType::Byte => RowValue::Byte(slice[0]),
+            ColumnType::SByte => RowValue::SByte(slice[0] as i8),
+            ColumnType::UInt16 => RowValue::UInt16(from_slice!(&slice[0..2], u16)),
+            ColumnType::Int16 => RowValue::Int16(from_slice!(&slice[0..2], i16)),
+            ColumnType::UInt32 => RowValue::UInt32(from_slice!(&slice[0..4], u32)),
+            ColumnType::Int32 => RowValue::Int32(from_slice!(&slice[0..4], i32)),
+            ColumnType::Single => RowValue::Single(from_slice!(&slice[0..4], f32)),
+            ColumnType::String => RowValue::String(from_slice!(&slice[0..4], u32)),
+            ColumnType::UInt64 => RowValue::UInt64(from_slice!(&slice[0..8], u64)),
+            ColumnType::Int64 => RowValue::Int64(from_slice!(&slice[0..8], i64)),
+            ColumnType::Double => RowValue::Double(from_slice!(&slice[0..8], f64)),
+            ColumnType::Data => RowValue::Data(DataValue {
+                offset: from_slice!(&slice[0..4], u32),
+                length: from_slice!(&slice[4..8], u32),
+            }),
+            ColumnType::Guid => todo!()
+        }
+    }
+}
+
+impl Index<usize> for Row {
     type Output = RowValue;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.rows[index]
+        &self.0[index]
     }
 }
 
@@ -91,12 +119,37 @@ impl<'a> Index<usize> for RowOffsets<'a> {
 pub mod tests {
     use std::error::Error;
     use std::fs::File;
-    use std::io::{BufReader, Read};
+    use std::io::{BufReader, Read, Seek, SeekFrom};
     use std::mem::MaybeUninit;
     use crate::schema::columns::Column;
     use crate::schema::header::{TableHeader, HEADER_SIZE};
-    use crate::schema::rows::{DataValue, RowOffsets, RowValue};
-    use crate::schema::strings::StringPool;
+    use crate::schema::rows::{DataValue, Row, RowValue};
+
+
+    struct OffsetedLowCpkReader(File);
+
+    impl OffsetedLowCpkReader {
+        fn new(file: File) -> Self {
+            Self(file)
+        }
+    }
+
+    impl Read for OffsetedLowCpkReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Seek for OffsetedLowCpkReader {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            // Add + 0x10 to everything
+            let pos = match pos {
+                SeekFrom::Start(v) => SeekFrom::Start(v + 0x10),
+                v => v,
+            };
+            self.0.seek(pos)
+        }
+    }
 
     #[test]
     fn read_rows_acb() -> Result<(), Box<dyn Error>> {
@@ -106,16 +159,40 @@ pub mod tests {
         }
         let mut handle = BufReader::new(File::open(target_table)?);
         let mut header_serial: MaybeUninit<[u8; HEADER_SIZE]> = MaybeUninit::uninit();
-        handle.read(unsafe { header_serial.assume_init_mut() })?;
+        handle.read_exact(unsafe { header_serial.assume_init_mut() })?;
         let header_serial = unsafe { header_serial.assume_init() };
-        let header = TableHeader::new(&header_serial)?;
+        let header = TableHeader::new(&header_serial);
         let columns = Column::new_list(&mut handle, &header)?;
-        let string_pool = StringPool::new(&mut handle, &header)?;
-        let rows =  RowOffsets::new(&mut handle, &header, &columns)?;
-        assert_eq!(RowValue::UInt32(0), rows[0]);
-        assert_eq!(RowValue::UInt32(20382208), rows[2]);
-        assert_eq!(RowValue::Data(DataValue { offset: 0, length: 16 }), rows[5]);
-        assert_eq!(RowValue::Data(DataValue { offset: 32, length: 1704 }), rows[7]);
+
+        let rows =  Row::new_list(&mut handle, &header, &columns)?;
+        let acb_row = &rows[0];
+        assert_eq!(RowValue::UInt32(0), acb_row[0]); // FileIdentifier
+        assert_eq!(RowValue::UInt32(20382208), acb_row[2]); // Version
+        assert_eq!(RowValue::Data(DataValue { offset: 0, length: 16 }), acb_row[5]); // AcfMd5Hash
+        assert_eq!(RowValue::Data(DataValue { offset: 32, length: 1704 }), acb_row[7]); // CueTable
+        Ok(())
+    }
+
+    #[test]
+    fn read_rows_cpk() -> Result<(), Box<dyn Error>> {
+        let target_table = "E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/SampleData.cpk";
+        if !std::fs::exists(target_table)? {
+            return Ok(());
+        }
+        let mut handle = OffsetedLowCpkReader::new(File::open(target_table)?);
+        handle.seek(SeekFrom::Start(0))?; // go to first table (this will actually go to 0x10)
+        let mut first_header: MaybeUninit<[u8; HEADER_SIZE]> = MaybeUninit::uninit();
+        handle.read_exact(unsafe { first_header.assume_init_mut() })?;
+        let first_header = unsafe { first_header.assume_init() };
+        let header = TableHeader::new(&first_header);
+        let columns = Column::new_list(&mut handle, &header)?;
+        let rows =  Row::new_list(&mut handle, &header, &columns)?;
+        let cpk_row = &rows[0];
+        assert_eq!(RowValue::UInt64(1), cpk_row[0]); // UpdateDateTime
+        assert_eq!(RowValue::None, cpk_row[1]); // FileSize
+        assert_eq!(RowValue::UInt64(0x800), cpk_row[2]); // ContentOffset
+        assert_eq!(RowValue::UInt64(0x2a000), cpk_row[3]); // ContentSize
+        assert_eq!(RowValue::UInt32(1), cpk_row[35]); // CpkMode
         Ok(())
     }
 }

@@ -22,24 +22,25 @@ use core::arch::x86_64::{
 use core::arch::aarch64::{ uint8x16_t, vld1q_u8, vst1q_u8, veorq_u8 };
 
 use std::ptr::{ read_unaligned, write_unaligned };
+use crate::cpk::file::CpkFile;
 
 #[derive(Debug)]
 pub struct P5RDecryptor;
 
 impl P5RDecryptor {
-
     // Offset of encrypted data.
-    const ENCRYPTED_DATA_OFFSET: usize = 0x20;
+    pub(crate) const ENCRYPTED_DATA_OFFSET: usize = 0x20;
 
     // Number of bytes to decrypt.
     const NUM_BYTES_TO_DECRYPT: usize = 0x400;
 
-    pub fn is_encrypted(user_string: &str) -> bool { user_string == "CRI_CFATTR:ENCRYPT" }
+    pub fn is_encrypted(file: &CpkFile) -> bool { file.user_string() == "CRI_CFATTR:ENCRYPT" }
 
     pub fn decrypt_in_place(input: &mut [u8]) {
         // Files shorter than 0x820 can't be "decrypted".
         // They aren't "encrypted" to begin with, even if they are marked with ENCRYPT user string
         if input.len() <= 0x820 { return };
+        let input = &mut input[P5RDecryptor::ENCRYPTED_DATA_OFFSET..];
         if cfg!(target_arch = "x86_64") {
             if cfg!(target_feature = "avx2") {
                 return Self::decrypt_in_place_avx2(input);
@@ -143,7 +144,7 @@ pub mod tests {
     }
 
     #[test]
-    fn can_decrypt() -> Result<(), Box<dyn Error>> {
+    fn can_decrypt_p5r() -> Result<(), Box<dyn Error>> {
         let values = P5RData::new();
         let mut encrypted_avx2 = values.clone();
         let mut encrypted_sse3 = values.clone();
@@ -153,6 +154,12 @@ pub mod tests {
         P5RDecryptor::decrypt_in_place_u64(&mut encrypted_u64[P5RDecryptor::ENCRYPTED_DATA_OFFSET..]);
         assert_eq!(&*encrypted_sse3, &*encrypted_avx2);
         assert_eq!(&*encrypted_u64, &*encrypted_avx2);
+        P5RDecryptor::decrypt_in_place_avx2(&mut encrypted_avx2[P5RDecryptor::ENCRYPTED_DATA_OFFSET..]);
+        P5RDecryptor::decrypt_in_place_sse3(&mut encrypted_sse3[P5RDecryptor::ENCRYPTED_DATA_OFFSET..]);
+        P5RDecryptor::decrypt_in_place_u64(&mut encrypted_u64[P5RDecryptor::ENCRYPTED_DATA_OFFSET..]);
+        assert_eq!(&*encrypted_avx2, &*values);
+        assert_eq!(&*encrypted_sse3, &*values);
+        assert_eq!(&*encrypted_u64, &*values);
         Ok(())
     }
 }

@@ -16,7 +16,7 @@ pub mod cpk {
     }
     pub mod file;
     pub mod reader;
-    pub mod container;
+    pub mod header;
 }
 pub mod schema {
     pub mod columns;

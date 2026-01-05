@@ -1,5 +1,7 @@
+#![allow(dead_code)]
+
 pub struct BigEndian;
-// pub struct LittleEndian;
+pub struct LittleEndian;
 pub struct NativeEndian;
 
 pub trait Endianness {
@@ -48,7 +50,6 @@ impl Endianness for NativeEndian {
     }
 }
 
-/*
 impl Endianness for LittleEndian {
     fn get_u16(arr: [u8; 2]) -> u16 {
         u16::from_le_bytes(arr)
@@ -60,4 +61,3 @@ impl Endianness for LittleEndian {
         u64::from_le_bytes(arr)
     }
 }
-*/

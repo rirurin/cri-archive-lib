@@ -15,75 +15,76 @@
 
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
+use std::ptr::NonNull;
 use crate::from_slice;
 use crate::utils::endianness::BigEndian;
 use crate::utils::slice::FromSlice;
 
-pub(crate) struct TableHeader<'a> {
-    /// Byte stream associated with this header instance
-    pub(crate) owner: &'a [u8],
-    /// Offset of rows relative to start of table
-    pub(crate) rows_offset: u16,
-    /// Offset of encoded strings relative to start of table
-    pub(crate) string_pool_offset: u32,
-    /// Offset of raw data relative to start of table
-    pub(crate) data_pool_offset: u32,
-
-    /// Number of columns in this table
-    pub(crate) column_count: u16,
-    /// Size of each row in bytes
-    pub(crate) row_size: u16,
-    /// Number of rows in this table
-    pub(crate) row_count: u32
-}
-
-impl<'a> Debug for TableHeader<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TableHeader {{ owner: [ 0x{:x}, {} bytes ], rows_offset: {}, string_pool_offset: {}, \
-data_pool_offset: {}, column_count: {}, row_size: {}, row_count: {} }}",
-               self.owner.as_ptr() as usize, self.owner.len(), self.rows_offset, self.string_pool_offset,
-        self.data_pool_offset, self.column_count, self.row_size, self.row_count)
-    }
-}
-
 #[derive(Debug)]
+#[repr(u8)]
 pub(crate) enum StringEncoding {
     ShiftJIS,
     UTF8
+}
+
+impl From<u8> for StringEncoding {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::ShiftJIS,
+            _ => Self::UTF8
+        }
+    }
 }
 
 
 pub(crate) static HEADER_OFFSET: u32 = 0x8;
 pub(crate) static HEADER_SIZE: usize = 0x20;
 
-impl<'a> TableHeader<'a> {
-    pub(crate) fn new(file: &'a [u8]) -> Result<Self, Box<dyn Error>> {
-        // Get offsets from header beginning (stream + 0x8)
-        let rows_offset = from_slice!(file, u16, 0xa) + HEADER_OFFSET as u16;
-        let string_pool_offset = from_slice!(file, u32, 0xc) + HEADER_OFFSET;
-        let data_pool_offset = from_slice!(file, u32, 0x10) + HEADER_OFFSET;
+#[derive(Debug)]
+//pub(crate) struct TableHeader<'a> {
+pub(crate) struct TableHeader {
+    /// Byte slice associated with this header instance. It's assumed that the slice is large
+    /// enough to contain the entire table
+    pub(crate) owner: NonNull<[u8]>,
+}
 
-        // Field data
-        let column_count = from_slice!(file, u16, 0x18);
-        let row_size = from_slice!(file, u16, 0x1a);
-        let row_count = from_slice!(file, u32, 0x1c);
-
-        Ok(Self {
-            owner: file,
-            rows_offset,
-            string_pool_offset,
-            data_pool_offset,
-            column_count,
-            row_size,
-            row_count
-        })
+impl TableHeader {
+    pub(crate) fn new(file: &[u8]) -> Self {
+        Self { owner: unsafe { NonNull::new_unchecked(&raw const* file as _) } }
     }
 
-    pub(crate) fn get_encoding(&self) -> StringEncoding {
-        match self.owner[9] == 0 {
-            true => StringEncoding::ShiftJIS,
-            false => StringEncoding::UTF8
-        }
+    pub(crate) fn size(&self) -> u32 {
+        from_slice!(unsafe { self.owner.as_ref() }, u32, 0x8)
+    }
+
+    pub(crate) fn encoding(&self) -> StringEncoding {
+        from_slice!(unsafe { self.owner.as_ref() }, u8, 0x9).into()
+    }
+
+    pub(crate) fn rows_offset(&self) -> u16 {
+        from_slice!(unsafe { self.owner.as_ref() }, u16, 0xa) + HEADER_OFFSET as u16
+    }
+
+    pub(crate) fn string_pool_offset(&self) -> u32 {
+        from_slice!(unsafe { self.owner.as_ref() }, u32, 0xc) + HEADER_OFFSET
+    }
+
+    pub(crate) fn data_pool_offset(&self) -> u32 {
+        from_slice!(unsafe { self.owner.as_ref() }, u32, 0x10) + HEADER_OFFSET
+    }
+
+    // Field data
+    pub(crate) fn column_count(&self) -> u16 {
+        from_slice!(unsafe { self.owner.as_ref() }, u16, 0x18)
+    }
+
+    pub(crate) fn row_size(&self) -> u16 {
+        from_slice!(unsafe { self.owner.as_ref() }, u16, 0x1a)
+    }
+
+    pub(crate) fn row_count(&self) -> u32 {
+        from_slice!(unsafe { self.owner.as_ref() }, u32, 0x1c)
     }
 }
 
@@ -103,13 +104,13 @@ pub mod tests {
             return Ok(());
         }
         let file = std::fs::read(target_table)?;
-        let header = TableHeader::new(&file)?;
-        assert_eq!(512, header.rows_offset);
-        assert_eq!(951, header.string_pool_offset);
-        assert_eq!(2112, header.data_pool_offset);
-        assert_eq!(96, header.column_count);
-        assert_eq!(415, header.row_size);
-        assert_eq!(1, header.row_count);
+        let header = TableHeader::new(&file);
+        assert_eq!(512, header.rows_offset());
+        assert_eq!(951, header.string_pool_offset());
+        assert_eq!(2112, header.data_pool_offset());
+        assert_eq!(96, header.column_count());
+        assert_eq!(415, header.row_size());
+        assert_eq!(1, header.row_count());
         Ok(())
     }
 
@@ -120,13 +121,13 @@ pub mod tests {
             return Ok(());
         }
         let file = std::fs::read(target_table)?;
-        let header = TableHeader::new(&file)?;
-        assert_eq!(352, header.rows_offset);
-        assert_eq!(674, header.string_pool_offset);
-        assert_eq!(1568, header.data_pool_offset);
-        assert_eq!(64, header.column_count);
-        assert_eq!(322, header.row_size);
-        assert_eq!(1, header.row_count);
+        let header = TableHeader::new(&file);
+        assert_eq!(352, header.rows_offset());
+        assert_eq!(674, header.string_pool_offset());
+        assert_eq!(1568, header.data_pool_offset());
+        assert_eq!(64, header.column_count());
+        assert_eq!(322, header.row_size());
+        assert_eq!(1, header.row_count());
         Ok(())
     }
 
@@ -138,17 +139,17 @@ pub mod tests {
         }
         let mut handle = File::open(target_table)?;
         handle.seek(SeekFrom::Start(0x10))?; // go to first table
+        // this CPK table is not encrypted so we can immediately use TableHeader
         let mut first_header: MaybeUninit<[u8; HEADER_SIZE]> = MaybeUninit::uninit();
-        handle.read(unsafe { first_header.assume_init_mut() })?;
+        handle.read_exact(unsafe { first_header.assume_init_mut() })?;
         let first_header = unsafe { first_header.assume_init() };
-        let header = TableHeader::new(&first_header)?;
-        assert_eq!(252, header.rows_offset);
-        assert_eq!(378, header.string_pool_offset);
-        assert_eq!(848, header.data_pool_offset);
-        assert_eq!(44, header.column_count);
-        assert_eq!(126, header.row_size);
-        assert_eq!(1, header.row_count);
+        let header = TableHeader::new(&first_header);
+        assert_eq!(252, header.rows_offset());
+        assert_eq!(378, header.string_pool_offset());
+        assert_eq!(848, header.data_pool_offset());
+        assert_eq!(44, header.column_count());
+        assert_eq!(126, header.row_size());
+        assert_eq!(1, header.row_count());
         Ok(())
     }
-
 }

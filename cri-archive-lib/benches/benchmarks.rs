@@ -11,8 +11,7 @@ use cri_archive_lib::cpk::encrypt::table::TableDecryptor;
 
 fn read_compressed_layla_3d_model() -> Result<Vec<u8>, Box<dyn Error>> {
     let layla_table = "E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/Compressed3dModel.crilayla";
-    let mut layla_data = vec![];
-    File::open(layla_table)?.read_to_end(&mut layla_data)?;
+    let layla_data = std::fs::read(layla_table)?;
     Ok(layla_data)
 }
 
@@ -58,7 +57,7 @@ fn decrypt_table_little_init() -> Result<Vec<u8>, Box<dyn Error>> {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    // let model_data = read_compressed_layla_3d_model().unwrap();
+    let model_data = read_compressed_layla_3d_model().unwrap();
     /*
     c.bench_function(
         "Layla Decompressor: Read 13", |b| b.iter(|| {
@@ -99,15 +98,15 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(benchmark_layla_read_max_8(&mut cursor, &model_data));
         }));
     */
-    /*
     c.bench_function(
         "Layla Decompressor: Decompress", |b| b
             .iter(|| black_box(benchmark_layla_decompress(&model_data))));
-     */
+    /*
     let table_little = decrypt_table_little_init().unwrap();
     c.bench_function(
         "Table Decryptor: Little", |b| b
             .iter(|| black_box(TableDecryptor::decrypt_utf(&table_little))));
+     */
 }
 
 criterion_group!(benches, criterion_benchmark);

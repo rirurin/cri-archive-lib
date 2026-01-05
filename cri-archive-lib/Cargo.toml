@@ -22,19 +22,24 @@ harness = false
 acb = []
 acf = []
 awb = []
-# CPK targeted parser
+# Add high-level structures for reading CPKs
 cpk = []
 
+# Handle CRILAYLA compressed files
 cpk_compression_layla = ["cpk"]
+# Handle Persona 5 Royal's file encryption
 cpk_encryption_p5r = ["cpk"]
+# Handle CRI table encryption
 cpk_encryption_table = ["cpk"]
 
+# Enable all optional CPK features
 cpk_full = [
     "cpk_compression_layla",
     "cpk_encryption_p5r",
     "cpk_encryption_table"
 ]
 
+# Removes several bounds checks, will likely abort instead of panic if something goes wrong
 dangerous = []
 # Fully parse CRI Table data (if disabled, irrelevant data is skipped)
 full_table = []

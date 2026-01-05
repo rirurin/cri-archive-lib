@@ -1,8 +1,14 @@
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, SeekFrom};
+use std::mem::MaybeUninit;
+use std::ptr::NonNull;
 use bitflags::bitflags;
+use crate::from_slice;
 use crate::schema::header::TableHeader;
+use crate::schema::rows::{Row, RowValue};
+use crate::utils::slice::FromSlice;
+use crate::utils::endianness::BigEndian;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,11 +56,6 @@ const TYPE_MASK: u8 = 0xf;
 pub(crate) struct ColumnValue(u8);
 
 impl ColumnValue {
-    /*
-    const fn new(value: u8) -> Self {
-        Self(value)
-    }
-    */
     pub(crate) const fn get_flags(&self) -> ColumnFlag {
         ColumnFlag::from_bits_retain(self.0 & !TYPE_MASK)
     }
@@ -69,35 +70,49 @@ impl Debug for ColumnValue {
     }
 }
 
-#[repr(C, packed(1))]
+#[derive(Debug)]
 pub(crate) struct Column {
     flag: ColumnValue,
-    string_offset: u32
-}
-
-impl Debug for Column {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Column {{ {:?}, {} }}", self.flag, unsafe { std::ptr::read_unaligned(&raw const self.string_offset) })
-    }
+    string_offset: u32,
+    default: Option<RowValue>
 }
 
 impl Column {
+    pub(crate) fn new(flag: ColumnValue, string_offset: u32, default: Option<RowValue>) -> Self {
+        Self { flag, string_offset, default }
+    }
+
     pub(crate) fn get_value(&self) -> ColumnValue {
         self.flag
     }
-    pub(crate) fn get_offset(&self) -> u32 {
+    pub(crate) fn get_string_offset(&self) -> u32 {
         self.string_offset
     }
 
+    pub(crate) fn get_default_value(&self) -> Option<&RowValue> {
+        self.default.as_ref()
+    }
+
     pub(crate) fn new_list<C: Read + Seek>(handle: &mut C, header: &TableHeader) -> Result<Vec<Self>, Box<dyn Error>> {
-        let mut columns: Vec<Self> = Vec::with_capacity(header.column_count as usize);
-        unsafe { columns.set_len(header.column_count as usize) };
-        handle.read(unsafe { std::slice::from_raw_parts_mut(
-            columns.as_mut_ptr() as _, columns.len() * size_of::<Self>()) })?;
-        for c in &mut columns {
-            #[cfg(target_endian = "little")] {
-                c.string_offset = c.string_offset.swap_bytes();
-            }
+        handle.seek(SeekFrom::Start(crate::schema::header::HEADER_SIZE as u64))?;
+        let mut columns: Vec<Self> = Vec::with_capacity(header.column_count() as usize);
+        let mut current: MaybeUninit<[u8; 5]> = MaybeUninit::uninit(); // maximum possible size for row
+        let mut default: MaybeUninit<[u8; 0x10]> = MaybeUninit::uninit();
+        for _ in 0..header.column_count() as usize {
+            handle.read_exact(unsafe { current.assume_init_mut() })?;
+            let flag = ColumnValue(from_slice!(unsafe { current.assume_init_ref() }, u8));
+            let string_offset = from_slice!(unsafe { current.assume_init_ref() }, u32, 0x1);
+            let default = match flag.get_flags().contains(ColumnFlag::DEFAULT_VALUE) {
+                true => {
+                    let ctype = flag.get_type();
+                    let slice = unsafe { std::slice::from_raw_parts_mut(
+                        default.as_mut_ptr() as *mut u8, ctype.get_size() as usize) };
+                    handle.read_exact(slice)?;
+                    Some(Row::into_row_value(ctype, unsafe { default.assume_init_ref() }))
+                },
+                false => None
+            };
+            columns.push(Self::new(flag, string_offset, default));
         }
         Ok(columns)
     }
@@ -111,7 +126,7 @@ pub mod tests {
     use std::mem::MaybeUninit;
     use crate::schema::columns::{Column, ColumnFlag, ColumnType};
     use crate::schema::header::{TableHeader, HEADER_SIZE};
-    use crate::schema::strings::StringPool;
+    use crate::schema::strings::{ StringPool, StringPoolImpl };
 
     #[test]
     fn read_columns_acb() -> Result<(), Box<dyn Error>> {
@@ -121,11 +136,11 @@ pub mod tests {
         }
         let mut handle = BufReader::new(File::open(target_table)?);
         let mut header_serial: MaybeUninit<[u8; HEADER_SIZE]> = MaybeUninit::uninit();
-        handle.read(unsafe { header_serial.assume_init_mut() })?;
+        handle.read_exact(unsafe { header_serial.assume_init_mut() })?;
         let header_serial = unsafe { header_serial.assume_init() };
-        let header = TableHeader::new(&header_serial)?;
+        let header = TableHeader::new(&header_serial);
         let columns = Column::new_list(&mut handle, &header)?;
-        let string_pool = StringPool::new(&mut handle, &header)?;
+        let string_pool = StringPoolImpl::new(&mut handle, &header)?;
 
         let v0 = columns[0].get_value();
         assert_eq!(v0.get_type(), ColumnType::UInt32);

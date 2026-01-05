@@ -43,6 +43,10 @@
 //! If the max value is returned, we read next number of bits in fib sequence, up to 8 bits. Then
 //! read 8s until max value no longer returned.
 
+use crate::from_slice;
+use crate::utils::slice::FromSlice;
+use crate::utils::endianness::LittleEndian;
+
 static LAYLA_HEADER_MAGIC: u64 = 0x414C59414C495243; // CRILAYLA
 
 #[repr(C)]
@@ -266,6 +270,10 @@ pub struct LaylaDecompressor;
 impl LaylaDecompressor {
     // Size of uncompressed data under CRILAYLA.
     const UNCOMPRESSED_DATA_SIZE: usize = 0x100;
+
+    pub fn is_compressed(input: &[u8]) -> bool {
+        from_slice!(input, u64, LittleEndian) == LAYLA_HEADER_MAGIC
+    }
 
     pub fn decompress(input: &[u8]) -> Vec<u8> {
         let header = LaylaHeader::from_stream(input);
