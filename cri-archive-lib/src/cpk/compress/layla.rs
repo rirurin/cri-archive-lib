@@ -49,6 +49,11 @@ use crate::utils::endianness::LittleEndian;
 
 static LAYLA_HEADER_MAGIC: u64 = 0x414C59414C495243; // CRILAYLA
 
+static BIT_MASK: [u32; 16] = [
+    0x0000, 0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f,
+    0x00ff, 0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff
+];
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct LaylaHeader {
@@ -75,7 +80,13 @@ impl LaylaDecompressorCursor {
     }
 
     pub fn get_cdata(&self) -> *const u8 { self.cdata }
+
     pub fn get_bits_left(&self) -> usize { self.bits_left }
+
+    #[inline]
+    fn bit_mask(n: usize) -> u32 {
+        unsafe { *BIT_MASK.get_unchecked(n) }
+    }
 
     pub fn read_1(&mut self) -> bool {
         if self.bits_left != 0 {
@@ -89,6 +100,36 @@ impl LaylaDecompressorCursor {
     }
 
     pub fn read_13(&mut self) -> u32 {
+        // Read first set.
+        if self.bits_left == 0 {
+            self.cdata = unsafe { self.cdata.sub(1) };
+            self.bits_left = 8;
+        }
+        let mut bits = 13 - self.bits_left;
+        let mut res = (unsafe { *self.cdata } as u32) & Self::bit_mask(self.bits_left);
+        // bitsleft == 0 is guaranteed, so we reset to 8
+        self.cdata = unsafe { self.cdata.sub(1) };
+        self.bits_left = 8;
+        // Read more from next byte.
+        let bit_round = bits.min(self.bits_left);
+        res = (res << bit_round) | (((unsafe { *self.cdata } as u32) >> (self.bits_left - bit_round)) & Self::bit_mask(bit_round));
+        bits -= bit_round;
+        // It's possible, we might need 3 reads in some cases so we keep unrolling
+        if bits == 0 {
+            self.bits_left -= bit_round;
+            return res;
+        }
+        // Read byte if needed
+        self.cdata = unsafe { self.cdata.sub(1) };
+        self.bits_left = 8;
+        // If there are more to read from next byte.
+        res = (res << bits) | (((unsafe { *self.cdata } as u32) >> (self.bits_left - bits)) & Self::bit_mask(bits));
+        self.bits_left -= bits;
+        res
+    }
+
+    /*
+    pub fn read_13(&mut self) -> u32 {
         let mut bits = 13;
         if self.bits_left == 0 {
             self.cdata = unsafe { self.cdata.sub(1) };
@@ -97,7 +138,7 @@ impl LaylaDecompressorCursor {
         let mut res = 0;
         for _ in 0..3 {
             let bit_round = bits.min(self.bits_left);
-            res = (res << bit_round) | (((unsafe { *self.cdata } as u32) >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1));
+            res = (res << bit_round) | (((unsafe { *self.cdata } as u32) >> (self.bits_left - bit_round)) & Self::bit_mask(bit_round));
             bits -= bit_round;
             // Early return if 13 bits cover 2 bytes
             if bits == 0 {
@@ -109,14 +150,15 @@ impl LaylaDecompressorCursor {
         }
         res
     }
+    */
 
     pub fn read_8(&mut self) -> u8 {
         self.cdata = unsafe { self.cdata.sub(1) };
         if self.bits_left != 0 {
             // We must split between 2 reads if there are more to read from next byte.
             let extra_bit = 8 - self.bits_left;
-            return ((unsafe { *self.cdata.add(1) } & ((1 << self.bits_left) - 1)) << extra_bit) // high bit
-                | ((unsafe { *self.cdata } >> (8 - extra_bit)) & ((1 << extra_bit) - 1)); // low bit
+            return ((unsafe { *self.cdata.add(1) } & (Self::bit_mask(self.bits_left) as u8)) << extra_bit) // high bit
+                | ((unsafe { *self.cdata } >> (8 - extra_bit)) & (Self::bit_mask(extra_bit) as u8)); // low bit
         }
         unsafe { *self.cdata }
     }
@@ -146,7 +188,7 @@ impl LaylaDecompressorCursor {
         let mut res = 0;
         for _ in 0..2 {
             let bit_round = bits.min(self.bits_left);
-            res = (res << bit_round) | ((unsafe { *self.cdata } >> (self.bits_left - bit_round)) & ((1 << bit_round) - 1));
+            res = (res << bit_round) | ((unsafe { *self.cdata } >> (self.bits_left - bit_round)) & (Self::bit_mask(bit_round) as u8));
             bits -= bit_round;
             // Early return if n bits cover 1 byte
             if bits == 0 {
@@ -190,7 +232,7 @@ impl<'a> LaylaDecompressorImpl<'a> {
             self.output.as_ptr().add(LaylaDecompressor::UNCOMPRESSED_DATA_SIZE)) };
         // Bitstream State
         let mut cursor = LaylaDecompressorCursor::new(uncmp_data, 0);
-        while pwrite as usize > pmin as usize {
+        while pwrite as usize >= pmin as usize {
             if cursor.read_1() { // Check for compression flag
                 let offset = cursor.read_13() as usize + Self::MIN_COPY_LENGTH;
                 let mut length = Self::MIN_COPY_LENGTH;
@@ -246,10 +288,9 @@ impl<'a> LaylaDecompressorImpl<'a> {
                         *(pwrite.sub(7)) = *(pwrite.sub(7).add(offset));
                         pwrite = pwrite.sub(Self::EXTRA_PIPELINE_LENGTH);
                         for _ in 0..length - Self::EXTRA_PIPELINE_LENGTH {
-                            unsafe {
-                                *pwrite = *pwrite.add(offset);
-                                pwrite = pwrite.sub(1);
-                            }
+                            let ofs = pwrite as usize - pmin as usize;
+                            *pwrite = *pwrite.add(offset);
+                            pwrite = pwrite.sub(1);
                         }
                     }
                 }
@@ -280,7 +321,9 @@ impl LaylaDecompressor {
         let mut result = Vec::with_capacity(
             header.uncompressed_size as usize + Self::UNCOMPRESSED_DATA_SIZE);
         unsafe { result.set_len(result.capacity()) };
-        let mut dcmp_impl = LaylaDecompressorImpl::new(header, &input[size_of::<LaylaHeader>()..], &mut result);
+        let cmp_slice = unsafe { std::slice::from_raw_parts(
+            input.as_ptr().add(size_of::<LaylaHeader>()), input.len() - size_of::<LaylaHeader>()) };
+        let mut dcmp_impl = LaylaDecompressorImpl::new(header, cmp_slice, &mut result);
         dcmp_impl.decompress();
         result
     }

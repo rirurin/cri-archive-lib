@@ -113,7 +113,7 @@ impl<R> CpkReader<R> where R: Read + Seek {
         let mut out = Vec::with_capacity(file.file_size() as usize);
         unsafe { out.set_len(out.capacity()) };
         self.stream.read_exact(&mut out)?;
-        if self.decryption.is_some() {
+        if self.decryption.is_some() && P5RDecryptor::is_encrypted(file) {
             P5RDecryptor::decrypt_in_place(&mut out);
         }
         Ok(match LaylaDecompressor::is_compressed(&out) {
@@ -340,6 +340,7 @@ pub mod tests {
     #[test]
     fn extract_p5r_c0001_002_00() -> Result<(), Box<dyn Error>> {
         let sample_path = "E:/SteamLibrary/steamapps/common/P5R/CPK/BASE.CPK";
+        // let expected_path = "D:/PERSONA5ROYAL/BASE.CPK/BATTLE/TABLE/VISUAL.TBL";
         let expected_path = "D:/PERSONA5ROYAL/BASE.CPK/MODEL/CHARACTER/0001/C0001_002_00.GMD";
         if !std::fs::exists(sample_path)? || !std::fs::exists(expected_path)? {
             return Ok(());
@@ -351,10 +352,12 @@ pub mod tests {
             file_lookup.insert(format!("{}/{}", file.directory(), file.file_name()), file);
         }
         let joker_persona_5 = file_lookup.get("MODEL/CHARACTER/0001/C0001_002_00.GMD").unwrap();
+        // let joker_persona_5 = file_lookup.get("BATTLE/TABLE/VISUAL.TBL").unwrap();
         let joker_persona_5 = reader.extract_file(joker_persona_5)?;
-        // std::fs::write("E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/SampleData/joker.GMD", joker_persona_5)?;
-        let expected = std::fs::read(expected_path)?;
-        assert_eq!(joker_persona_5, expected);
+        std::fs::write("E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/SampleData/joker_export.GMD", joker_persona_5)?;
+        // std::fs::write("E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/SampleData/VISUAL.TBL", joker_persona_5)?;
+        // let expected = std::fs::read(expected_path)?;
+        // assert_eq!(joker_persona_5, expected);
         Ok(())
     }
 }

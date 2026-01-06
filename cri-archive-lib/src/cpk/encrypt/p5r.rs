@@ -128,7 +128,7 @@ pub mod tests {
     pub struct P5RData([u8; 0x821]);
     impl P5RData {
         fn new() -> Self {
-            Self(std::array::from_fn::<u8, 0x821, _>(|i| (i % 0x100) as u8))
+            Self(std::array::from_fn::<u8, 0x821, _>(|i| (i & 0xff) as u8))
         }
     }
     impl Deref for P5RData {

@@ -12,7 +12,7 @@ impl FromSlice for u8 {
 
     #[cfg(feature = "dangerous")]
     fn from_slice<E: Endianness>(slice: &[u8], offset: usize) -> Self {
-        *slice.as_ptr().add(offset)
+        unsafe { *slice.as_ptr().add(offset) }
     }
 }
 
