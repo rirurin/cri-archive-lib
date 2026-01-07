@@ -16,5 +16,5 @@ impl FileDecryptor for DummyDecryptor {
         false
     }
 
-    fn decrypt_in_place(input: &mut [u8]) {}
+    fn decrypt_in_place(_: &mut [u8]) {}
 }

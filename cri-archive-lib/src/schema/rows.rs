@@ -2,7 +2,6 @@ use std::error::Error;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut, Index};
-use std::ptr::NonNull;
 use crate::schema::columns::{Column, ColumnFlag, ColumnType};
 use crate::schema::header::TableHeader;
 use crate::utils::endianness::BigEndian;
@@ -10,7 +9,7 @@ use crate::utils::slice::FromSlice;
 use crate::from_slice;
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum RowValue {
+pub enum RowValue {
     None,
     Byte(u8),
     SByte(i8),
@@ -29,19 +28,19 @@ pub(crate) enum RowValue {
 
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct DataValue {
+pub struct DataValue {
     offset: u32,
     length: u32
 }
 
 impl DataValue {
-    pub(crate) fn is_none(&self) -> bool {
+    pub fn is_none(&self) -> bool {
         self.length == 0
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct Row(Vec<RowValue>);
+pub struct Row(Vec<RowValue>);
 
 impl Deref for Row {
     type Target = Vec<RowValue>;
@@ -58,7 +57,7 @@ impl DerefMut for Row {
 }
 
 impl Row {
-    pub(crate) fn new_list<C: Read + Seek>(handle: &mut C, header: &TableHeader, column_def: &[Column])
+    pub fn new_list<C: Read + Seek>(handle: &mut C, header: &TableHeader, column_def: &[Column])
         -> Result<Vec<Self>, Box<dyn Error>> {
         handle.seek(SeekFrom::Start(header.rows_offset() as u64))?;
         let mut rows = Vec::with_capacity(header.row_count() as usize);
@@ -81,12 +80,12 @@ impl Row {
             let slice = unsafe { std::slice::from_raw_parts_mut(
                 field.as_mut_ptr() as *mut u8, ctype.get_size() as usize) };
             handle.read_exact(slice)?;
-            column_data.push(Self::into_row_value(ctype, unsafe { field.assume_init_ref() }));
+            column_data.push(Self::row_value(ctype, unsafe { field.assume_init_ref() }));
         }
         Ok(Self(column_data))
     }
 
-    pub(crate) fn into_row_value(ctype: ColumnType, slice: &[u8]) -> RowValue {
+    pub fn row_value(ctype: ColumnType, slice: &[u8]) -> RowValue {
         match ctype {
             ColumnType::Byte => RowValue::Byte(slice[0]),
             ColumnType::SByte => RowValue::SByte(slice[0] as i8),
@@ -124,7 +123,7 @@ pub mod tests {
     use crate::schema::columns::Column;
     use crate::schema::header::{TableHeader, HEADER_SIZE};
     use crate::schema::rows::{DataValue, Row, RowValue};
-
+    use crate::schema::strings::{ StringPool, StringPoolImpl };
 
     struct OffsetedLowCpkReader(File);
 
@@ -193,6 +192,43 @@ pub mod tests {
         assert_eq!(RowValue::UInt64(0x800), cpk_row[2]); // ContentOffset
         assert_eq!(RowValue::UInt64(0x2a000), cpk_row[3]); // ContentSize
         assert_eq!(RowValue::UInt32(1), cpk_row[35]); // CpkMode
+        Ok(())
+    }
+
+    #[test]
+    fn readme_example() -> Result<(), Box<dyn Error>> {
+        let path = "E:/Metaphor/base_cpk/COMMON/sound/bgm.acb";
+        let mut handle = BufReader::new(File::open(path)?);
+        let mut header_serial: MaybeUninit<[u8; HEADER_SIZE]> = MaybeUninit::uninit();
+        // Read the table header at 0x0 (ACB, ACF, AWB)
+        handle.read_exact(unsafe { header_serial.assume_init_mut() })?;
+        let header_serial = unsafe { header_serial.assume_init() };
+        let header = TableHeader::new(&header_serial);
+        // Read columns/rows
+        let columns = Column::new_list(&mut handle, &header)?;
+        let string_pool = StringPoolImpl::new(&mut handle, &header)?;
+        let rows = Row::new_list(&mut handle, &header, &columns)?;
+        let acb_row = &rows[0]; // ACB header has only one row
+        // find the column for "AcfMd5Hash"
+        let mut acf_md5_hash: Option<usize> = None;
+        for (i, c) in columns.iter().enumerate() {
+            if let Some(str) = string_pool.get_string(c.get_string_offset()) {
+                if str == "AcfMd5Hash" {
+                    acf_md5_hash = Some(i);
+                    break;
+                }
+            }
+        }
+        if let Some(acf_col) = acf_md5_hash {
+            if let RowValue::Data(hash) = &acb_row[acf_col] {
+                // read the ACF MD5 hash
+                handle.seek(SeekFrom::Start((header.data_pool_offset() + hash.offset) as u64))?;
+                let mut acf_md5 = Vec::with_capacity(hash.length as usize);
+                unsafe { acf_md5.set_len(acf_md5.capacity()) };
+                handle.read_exact(&mut acf_md5)?;
+                println!("{:?}", acf_md5);
+            }
+        }
         Ok(())
     }
 }

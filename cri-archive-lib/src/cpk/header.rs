@@ -1,14 +1,12 @@
 use std::error::Error;
-use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::marker::PhantomData;
+use std::io::{Cursor, Read, Seek};
 use std::mem::MaybeUninit;
-use std::ptr::NonNull;
 use crate::cpk::encrypt::table::TableDecryptor;
 use crate::from_slice;
 use crate::schema::columns::Column;
 use crate::schema::header::TableHeader;
 use crate::schema::rows::Row;
-use crate::schema::strings::{StringPool, StringPoolFast, StringPoolImpl};
+use crate::schema::strings::{StringPool, StringPoolFast};
 use crate::utils::slice::FromSlice;
 use crate::utils::endianness::NativeEndian;
 
@@ -33,7 +31,9 @@ impl TableContainer {
 
 #[derive(Debug)]
 pub(crate) struct HighTable<S: StringPool> {
+    #[allow(dead_code)]
     alloc: Vec<u8>,
+    #[allow(dead_code)]
     header: TableHeader,
     columns: Vec<Column>,
     strings: S,
@@ -48,14 +48,15 @@ impl HighTable<StringPoolFast> {
         let columns = Column::new_list(&mut cursor, &header)?;
         let str_raw = &alloc[header.string_pool_offset() as usize..header.data_pool_offset() as usize];
         let strings = unsafe { StringPoolFast::new_borrowed(&str_raw)? };
-        let rows = Row::new_list(&mut cursor, &header, unsafe { columns.as_ref() })?;
+        let rows = Row::new_list(&mut cursor, &header, columns.as_ref())?;
         Ok(Self { alloc, header, columns, strings, rows })
     }
 }
 
 impl<S: StringPool> HighTable<S> {
-    pub fn get_columns(&self) -> &[Column] { unsafe { self.columns.as_ref() } }
+    pub fn get_columns(&self) -> &[Column] { self.columns.as_ref() }
     pub fn get_strings(&self) -> &S { &self.strings }
     pub fn get_rows(&self) -> &[Row] { &self.rows }
+    #[allow(dead_code)]
     pub fn get_alloc(&self) -> &[u8] { &self.alloc }
 }

@@ -1,5 +1,4 @@
 use console::Term;
-use indicatif::TermLike;
 
 pub struct PrintErr;
 

@@ -2,7 +2,6 @@ use std::error::Error;
 use std::fmt::{Debug, Formatter};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::MaybeUninit;
-use std::ptr::NonNull;
 use bitflags::bitflags;
 use crate::from_slice;
 use crate::schema::header::TableHeader;
@@ -12,7 +11,7 @@ use crate::utils::endianness::BigEndian;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) struct ColumnFlag : u8 {
+    pub struct ColumnFlag : u8 {
         const NAME = 1 << 4;
         const DEFAULT_VALUE = 1 << 5;
         const ROW_STORAGE = 1 << 6;
@@ -21,7 +20,7 @@ bitflags! {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ColumnType {
+pub enum ColumnType {
     Byte = 0,
     SByte = 1,
     UInt16 = 2,
@@ -38,7 +37,7 @@ pub(crate) enum ColumnType {
 }
 
 impl ColumnType {
-    pub(crate) fn get_size(&self) -> u32 {
+    pub fn get_size(&self) -> u32 {
         match self {
             Self::Byte | Self::SByte => 1,
             Self::UInt16 | Self::Int16 => 2,
@@ -53,13 +52,13 @@ const TYPE_MASK: u8 = 0xf;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ColumnValue(u8);
+pub struct ColumnValue(u8);
 
 impl ColumnValue {
-    pub(crate) const fn get_flags(&self) -> ColumnFlag {
+    pub const fn get_flags(&self) -> ColumnFlag {
         ColumnFlag::from_bits_retain(self.0 & !TYPE_MASK)
     }
-    pub(crate) const fn get_type(&self) -> ColumnType {
+    pub const fn get_type(&self) -> ColumnType {
         unsafe { std::mem::transmute(self.0 & TYPE_MASK) }
     }
 }
@@ -71,7 +70,7 @@ impl Debug for ColumnValue {
 }
 
 #[derive(Debug)]
-pub(crate) struct Column {
+pub struct Column {
     flag: ColumnValue,
     string_offset: u32,
     default: Option<RowValue>
@@ -82,18 +81,18 @@ impl Column {
         Self { flag, string_offset, default }
     }
 
-    pub(crate) fn get_value(&self) -> ColumnValue {
+    pub fn get_value(&self) -> ColumnValue {
         self.flag
     }
-    pub(crate) fn get_string_offset(&self) -> u32 {
+    pub fn get_string_offset(&self) -> u32 {
         self.string_offset
     }
 
-    pub(crate) fn get_default_value(&self) -> Option<&RowValue> {
+    pub fn get_default_value(&self) -> Option<&RowValue> {
         self.default.as_ref()
     }
 
-    pub(crate) fn new_list<C: Read + Seek>(handle: &mut C, header: &TableHeader) -> Result<Vec<Self>, Box<dyn Error>> {
+    pub fn new_list<C: Read + Seek>(handle: &mut C, header: &TableHeader) -> Result<Vec<Self>, Box<dyn Error>> {
         handle.seek(SeekFrom::Start(crate::schema::header::HEADER_SIZE as u64))?;
         let mut columns: Vec<Self> = Vec::with_capacity(header.column_count() as usize);
         let mut current: MaybeUninit<[u8; 5]> = MaybeUninit::uninit(); // maximum possible size for row
@@ -108,7 +107,7 @@ impl Column {
                     let slice = unsafe { std::slice::from_raw_parts_mut(
                         default.as_mut_ptr() as *mut u8, ctype.get_size() as usize) };
                     handle.read_exact(slice)?;
-                    Some(Row::into_row_value(ctype, unsafe { default.assume_init_ref() }))
+                    Some(Row::row_value(ctype, unsafe { default.assume_init_ref() }))
                 },
                 false => None
             };
@@ -122,7 +121,7 @@ impl Column {
 pub mod tests {
     use std::error::Error;
     use std::fs::File;
-    use std::io::{BufReader, Read, Seek, SeekFrom};
+    use std::io::{BufReader, Read};
     use std::mem::MaybeUninit;
     use crate::schema::columns::{Column, ColumnFlag, ColumnType};
     use crate::schema::header::{TableHeader, HEADER_SIZE};

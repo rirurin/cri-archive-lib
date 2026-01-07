@@ -5,16 +5,16 @@ use std::io::{Read, Seek, SeekFrom};
 use std::ptr::NonNull;
 use crate::schema::header::TableHeader;
 
-pub(crate) trait StringPool {
+pub trait StringPool {
     fn get_string(&self, offset: u32) -> Option<&str>;
 }
 
 #[repr(transparent)]
 #[derive(Debug)]
-pub(crate) struct StringPoolImpl(Vec<u8>);
+pub struct StringPoolImpl(Vec<u8>);
 
 impl StringPoolImpl {
-    pub(crate) fn new<C: Read + Seek>(handle: &mut C, header: &TableHeader)
+    pub fn new<C: Read + Seek>(handle: &mut C, header: &TableHeader)
         -> Result<Self, Box<dyn Error>> {
         let string_pool_offset = header.string_pool_offset();
         handle.seek(SeekFrom::Start(string_pool_offset as u64))?;
@@ -40,10 +40,10 @@ impl StringPool for StringPoolImpl {
 // This assumes an outer structure which is holding a valid reference to the byte stream
 // containing these strings (e.g HighTable in cpk::reader) to avoid making another copy
 #[derive(Debug)]
-pub(crate) struct StringPoolFast(HashMap<usize, NonNull<str>>);
+pub struct StringPoolFast(HashMap<usize, NonNull<str>>);
 
 impl StringPoolFast {
-    pub(crate) fn new<C: Read + Seek>(handle: &mut C, header: &TableHeader)
+    pub fn new<C: Read + Seek>(handle: &mut C, header: &TableHeader)
         -> Result<Self, Box<dyn Error>> {
         let string_pool_offset = header.string_pool_offset();
         handle.seek(SeekFrom::Start(string_pool_offset as u64))?;

@@ -63,6 +63,7 @@ impl TableDecryptor {
     }
 
     #[inline(always)]
+    #[allow(unused_variables, unused_mut)]
     fn decrypt_in_place_avx2(input: &mut [u8], start: usize, mut xor: i8) {
         #[cfg(target_arch = "x86_64")]
         {
@@ -89,6 +90,7 @@ impl TableDecryptor {
     }
 
     #[inline(always)]
+    #[allow(unused_variables, unused_mut)]
     fn decrypt_in_place_sse3(input: &mut [u8], start: usize, mut xor: i8) {
         #[cfg(target_arch = "x86_64")]
         {
@@ -113,6 +115,7 @@ impl TableDecryptor {
     }
 
     #[inline(always)]
+    #[allow(unused_variables, unused_mut)]
     fn decrypt_in_place_neon(input: &mut [u8], start: usize, mut xor: i8) {
         #[cfg(target_arch = "aarch64")]
         {
@@ -168,7 +171,7 @@ impl TableDecryptor {
 pub mod tests {
     use std::error::Error;
     use std::fs::File;
-    use std::io::{BufReader, Read, Write};
+    use std::io::{BufReader, Read};
     use crate::cpk::encrypt::table::TableDecryptor;
 
     #[test]

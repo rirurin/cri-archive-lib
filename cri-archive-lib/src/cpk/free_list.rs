@@ -61,7 +61,7 @@ impl FreeList {
     }
 
     #[inline]
-    fn into_block(size: usize) -> usize {
+    fn block_size(size: usize) -> usize {
         (size + (1 << BLOCK_SHIFT) - 1) >> BLOCK_SHIFT
     }
 
@@ -180,7 +180,7 @@ impl FreeList {
 
     /// Allocate into the free list. Returns None if there is not enough space remaining
     pub(crate) fn allocate(&mut self, size: usize) -> FreeListNode {
-        let blocks = Self::into_block(size);
+        let blocks = Self::block_size(size);
         self.acquire();
         let start = BasicSlidingWindowAllocator::get_free_block_index(self, blocks);
         if start == usize::MAX {
@@ -196,7 +196,7 @@ impl FreeList {
     }
 
     pub(crate) fn deallocate(&mut self, p: &FreeListNode) {
-        let blocks = Self::into_block(p.size);
+        let blocks = Self::block_size(p.size);
         self.acquire();
         self.bit_off((p.ptr as usize - self.slab as usize) >> BLOCK_SHIFT, blocks);
         self.unacquire();

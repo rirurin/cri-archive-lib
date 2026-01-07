@@ -289,7 +289,6 @@ impl<'a> LaylaDecompressorImpl<'a> {
                         *(pwrite.sub(7)) = *(pwrite.sub(7).add(offset));
                         pwrite = pwrite.sub(Self::EXTRA_PIPELINE_LENGTH);
                         for _ in 0..length - Self::EXTRA_PIPELINE_LENGTH {
-                            let ofs = pwrite as usize - pmin as usize;
                             *pwrite = *pwrite.add(offset);
                             pwrite = pwrite.sub(1);
                         }
@@ -332,8 +331,7 @@ impl LaylaDecompressor {
 pub mod tests {
     use std::error::Error;
     use std::fs::File;
-    use std::io::{Read, Write};
-    use std::time::Instant;
+    use std::io::Read;
     use crate::cpk::compress::layla::{LaylaDecompressor, LaylaDecompressorCursor};
     use crate::cpk::free_list::FreeList;
 

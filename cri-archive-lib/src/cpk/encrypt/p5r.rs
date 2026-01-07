@@ -59,6 +59,7 @@ impl P5RDecryptor {
     const NEXT_BLOCK_AVX2: usize = Self::NUM_BYTES_TO_DECRYPT / size_of::<__m256i>(); // 0x20
 
     #[inline(always)]
+    #[allow(unused_variables, unused_mut)]
     pub fn decrypt_in_place_avx2(input: &mut [u8]) {
         #[cfg(target_arch = "x86_64")]
         for i in 0..Self::NEXT_BLOCK_AVX2 {
@@ -74,6 +75,7 @@ impl P5RDecryptor {
     const NEXT_BLOCK_SSE3: usize = Self::NUM_BYTES_TO_DECRYPT / size_of::<__m128i>(); // 0x40
 
     #[inline(always)]
+    #[allow(unused_variables, unused_mut)]
     pub fn decrypt_in_place_sse3(input: &mut [u8]) {
         #[cfg(target_arch = "x86_64")]
         for i in 0..Self::NEXT_BLOCK_SSE3 {
@@ -89,6 +91,7 @@ impl P5RDecryptor {
     const NEXT_BLOCK_NEON: usize = Self::NUM_BYTES_TO_DECRYPT / size_of::<__m128i>(); // 0x40
 
     #[inline(always)]
+    #[allow(unused_variables, unused_mut)]
     pub fn decrypt_in_place_neon(input: &mut [u8]) {
         #[cfg(target_arch = "aarch64")]
         // Untested. Anyone have a MacBook?

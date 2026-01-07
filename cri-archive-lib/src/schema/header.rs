@@ -13,9 +13,7 @@
 //! - u16 RowSize: 0x1a,
 //! - u32 RowCount: 0x1c,
 
-use std::error::Error;
-use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
+use std::fmt::Debug;
 use std::ptr::NonNull;
 use crate::from_slice;
 use crate::utils::endianness::BigEndian;
@@ -23,7 +21,7 @@ use crate::utils::slice::FromSlice;
 
 #[derive(Debug)]
 #[repr(u8)]
-pub(crate) enum StringEncoding {
+pub enum StringEncoding {
     ShiftJIS,
     UTF8
 }
@@ -39,51 +37,51 @@ impl From<u8> for StringEncoding {
 
 
 pub(crate) static HEADER_OFFSET: u32 = 0x8;
-pub(crate) static HEADER_SIZE: usize = 0x20;
+pub static HEADER_SIZE: usize = 0x20;
 
 #[derive(Debug)]
 //pub(crate) struct TableHeader<'a> {
-pub(crate) struct TableHeader {
+pub struct TableHeader {
     /// Byte slice associated with this header instance. It's assumed that the slice is large
     /// enough to contain the entire table
     pub(crate) owner: NonNull<[u8]>,
 }
 
 impl TableHeader {
-    pub(crate) fn new(file: &[u8]) -> Self {
+    pub fn new(file: &[u8]) -> Self {
         Self { owner: unsafe { NonNull::new_unchecked(&raw const* file as _) } }
     }
 
-    pub(crate) fn size(&self) -> u32 {
+    pub fn size(&self) -> u32 {
         from_slice!(unsafe { self.owner.as_ref() }, u32, 0x8)
     }
 
-    pub(crate) fn encoding(&self) -> StringEncoding {
+    pub fn encoding(&self) -> StringEncoding {
         from_slice!(unsafe { self.owner.as_ref() }, u8, 0x9).into()
     }
 
-    pub(crate) fn rows_offset(&self) -> u16 {
+    pub fn rows_offset(&self) -> u16 {
         from_slice!(unsafe { self.owner.as_ref() }, u16, 0xa) + HEADER_OFFSET as u16
     }
 
-    pub(crate) fn string_pool_offset(&self) -> u32 {
+    pub fn string_pool_offset(&self) -> u32 {
         from_slice!(unsafe { self.owner.as_ref() }, u32, 0xc) + HEADER_OFFSET
     }
 
-    pub(crate) fn data_pool_offset(&self) -> u32 {
+    pub fn data_pool_offset(&self) -> u32 {
         from_slice!(unsafe { self.owner.as_ref() }, u32, 0x10) + HEADER_OFFSET
     }
 
     // Field data
-    pub(crate) fn column_count(&self) -> u16 {
+    pub fn column_count(&self) -> u16 {
         from_slice!(unsafe { self.owner.as_ref() }, u16, 0x18)
     }
 
-    pub(crate) fn row_size(&self) -> u16 {
+    pub fn row_size(&self) -> u16 {
         from_slice!(unsafe { self.owner.as_ref() }, u16, 0x1a)
     }
 
-    pub(crate) fn row_count(&self) -> u32 {
+    pub fn row_count(&self) -> u32 {
         from_slice!(unsafe { self.owner.as_ref() }, u32, 0x1c)
     }
 }
