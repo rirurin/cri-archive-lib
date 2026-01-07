@@ -83,14 +83,14 @@ jobs:
         uses: actions/download-artifact@v5
         if: env.IS_RELEASE == 'true'
         with:
-          name: "Linux Release"
+          name: ${{ '[CPK Extractor] Linux Release' }}
           path: ${{ env.RELEASE_PATH }}
 
       - name: Download Windows Release
         uses: actions/download-artifact@v5
         if: env.IS_RELEASE == 'true'
         with:
-          name: "Windows Release"
+          name: ${{ '[CPK Extractor] Windows Release' }}
           path: ${{ env.RELEASE_PATH }}
 
       - name: Upload to GitHub Releases (on Tag)
