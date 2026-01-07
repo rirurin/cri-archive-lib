@@ -9,6 +9,7 @@ use std::io::{BufReader, Read};
 use criterion::{ criterion_group, criterion_main, Criterion };
 use cri_archive_lib::cpk::compress::layla::{LaylaDecompressor, LaylaDecompressorCursor};
 use cri_archive_lib::cpk::encrypt::p5r::P5RDecryptor;
+use cri_archive_lib::cpk::encrypt::table::TableDecryptor;
 use cri_archive_lib::cpk::file::CpkFile;
 use cri_archive_lib::cpk::free_list::FreeList;
 use cri_archive_lib::cpk::reader::CpkReader;
@@ -49,9 +50,8 @@ fn benchmark_layla_read_13(cursor: &mut LaylaDecompressorCursor, model_data: &[u
     }
 }
 
-fn benchmark_layla_decompress(model_data: &[u8]) {
-    let mut allocator = FreeList::new();
-    let _ = LaylaDecompressor::decompress(&model_data, &mut allocator);
+fn benchmark_layla_decompress(model_data: &[u8], allocator: &mut FreeList) {
+    let _ = LaylaDecompressor::decompress(&model_data, allocator);
 }
 
 fn decrypt_table_little_init() -> Result<Vec<u8>, Box<dyn Error>> {
@@ -86,6 +86,7 @@ fn extract_joker_persona5_exclusive(reader: &mut CpkReader<BufReader<File>, P5RD
 
 fn criterion_benchmark(c: &mut Criterion) {
     // let model_data = read_compressed_layla_3d_model().unwrap();
+    // let mut allocator = FreeList::new();
     /*
     c.bench_function(
         "Layla Decompressor: Read 13", |b| b.iter(|| {
@@ -129,7 +130,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     /*
     c.bench_function(
         "Layla Decompressor: Decompress", |b| b
-            .iter(|| black_box(benchmark_layla_decompress(&model_data))));
+            .iter(|| black_box(benchmark_layla_decompress(&model_data, &mut allocator))));
     */
     /*
     let table_little = decrypt_table_little_init().unwrap();
@@ -151,7 +152,6 @@ fn criterion_benchmark(c: &mut Criterion) {
         file_lookup.insert(format!("{}/{}", file.directory(), file.file_name()), file);
     }
     let joker_persona_5 = file_lookup.get("MODEL/CHARACTER/0001/C0001_002_00.GMD").unwrap();
-    // let bgm_awb = file_lookup.get("SOUND/BGM.AWB").unwrap();
     c.bench_function(
         "Joker Persona 5", |b| b
         // "BGM AWB", |b| b

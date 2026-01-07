@@ -123,28 +123,30 @@ Ok(())
 
 ## Performance
 
-Performance was heavily optimized for parts of the crate that are used by `CpkReader`'s `extract_file`:
+Performance was heavily optimized for parts of the crate that are used by `CpkReader`'s `extract_file`.
+
+The following benchmarks were performed on an AMD Ryzen 5 3600XT on Windows 11. `cri-archive-lib` is using `0.1.0` and was compiled with `-Ctarget-feature=+avx2`.
 
 #### CriLAYLA Decompression
 
 **[Sample 165 KB model file](https://github.com/Sewer56/CriFsV2Lib/blob/master/CriFsV2Lib.Tests/Assets/Compressed3dModel.crilayla)**
 
-| Library | Mean | Error | Std Dev |
-| - | - | - | - |
-| CriPak (C#) |
-| CriFsLib (C#) |
-| cri-archive-lib (Rust) |
+| Library         | Mean               | Median             | Std Dev |
+|-----------------|--------------------|--------------------|---------|
+| CriPak          | 749.9 us (40.37%)  | 748.4 us (39.54%)  | 7.23 us |
+| CriFsLib        | 324.3 us (93.34%)  | 324.8 us (91.10%)  | 2.45 us |
+| cri-archive-lib | 302.7 us (100.00%) | 295.9 us (100.00%) | 18.7 us |
 
-#### Table Decryption
+#### Extracting File from CPK
 
-**2 MB encrypted header (P5R `BASE.CPK`)**
+**6 MB model file + XOR decryption** (P5R `BASE.CPK\MODEL\CHARACTER\0001\C0001_002_00.GMD`)
 
-| Library                | Mean | Error | Std Dev |
-|------------------------| - | - | - |
-| CriPak (C#)            |
-| CriFsLib (C#)          |
-| CriFsLib InPlace |
-| cri-archive-lib (Rust) |
+| Library         | Mean               | Median             | Std Dev  |
+|-----------------|--------------------|--------------------|----------|
+| CriFsLib        | 12.26 ms (83.20%)  | 12.26 ms (82.63%)  | 0.052 ms |
+| cri-archive-lib | 10.20 ms (100.00%) | 10.13 ms (100.00%) | 0.526 ms | 
+
+*Something to note for `CpkReader` is that it uses a free list to allow it to make zero allocations for small files (the setup is currently a 64 MB allocation split into 256 blocks, 256 KB each).*
 
 ## Credits and Resources
 - **Sewer56** ([Github](https://github.com/Sewer56), [Bluesky](https://bsky.app/profile/sewer56.dev)) - Creator of CriFsV2Lib, the original C# implementation of the CPK extractor
