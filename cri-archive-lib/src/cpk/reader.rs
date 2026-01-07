@@ -1,11 +1,14 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Read, Seek, SeekFrom};
+use std::marker::PhantomData;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::cpk::compress::layla::LaylaDecompressor;
-use crate::cpk::encrypt::p5r::P5RDecryptor;
+use crate::cpk::encrypt::data::{DummyDecryptor, FileDecryptor};
 use crate::cpk::file::CpkFile;
+use crate::cpk::free_list::{FreeList, FreeListNode};
 use crate::cpk::header::{HighTable, TableContainer};
-use crate::schema::columns::{Column, ColumnFlag, ColumnType};
+use crate::schema::columns::{Column, ColumnFlag};
 use crate::schema::rows::{Row, RowValue};
 use crate::schema::strings::{ StringPool, StringPoolFast };
 
@@ -28,28 +31,42 @@ impl Display for CpkReaderError {
 }
 
 #[derive(Debug)]
-pub struct CpkReader<R: Read + Seek> {
+pub struct CpkReader<R: Read + Seek, E: FileDecryptor = DummyDecryptor> {
     stream: R,
     start_pos: u64,
     content_ofs: u64,
     toc_table: Option<HighTable<StringPoolFast>>,
-    decryption: Option<P5RDecryptor>
+    free_list: FreeList,
+    decryption: PhantomData<E>,
+    lock: AtomicBool
 }
 
-impl<R> CpkReader<R> where R: Read + Seek {
+unsafe impl<R: Read + Seek, E: FileDecryptor> Send for CpkReader<R, E> {}
+unsafe impl<R: Read + Seek, E: FileDecryptor> Sync for CpkReader<R, E> {}
+
+impl<R: Read + Seek> CpkReader<R> {
+    pub fn new(stream: R) -> Result<Self, Box<dyn Error>> {
+        Self::new_with_encryption(stream)
+    }
+}
+
+impl<R: Read + Seek, E: FileDecryptor> CpkReader<R, E> {
     const DEFAULT_OFFSET: u64 = u64::MAX;
 
-    pub fn new(stream: R) -> Result<Self, Box<dyn Error>> {
-        Self::new_inner(stream, None)
-    }
-
-    pub fn new_p5r(stream: R) -> Result<Self, Box<dyn Error>> {
-        Self::new_inner(stream, Some(P5RDecryptor))
-    }
-
-    fn new_inner(mut stream: R, decryption: Option<P5RDecryptor>) -> Result<Self, Box<dyn Error>> {
+    pub fn new_with_encryption(mut stream: R) -> Result<Self, Box<dyn Error>> {
         let start_pos = stream.stream_position()?;
-        Ok(Self { stream, start_pos, content_ofs: Self::DEFAULT_OFFSET, toc_table: None, decryption })
+        Ok(Self { stream, start_pos, content_ofs: Self::DEFAULT_OFFSET, toc_table: None,
+            free_list: FreeList::new(), decryption: PhantomData::<E>, lock: AtomicBool::new(false) })
+    }
+
+    #[inline]
+    fn acquire(&mut self) {
+        while self.lock.swap(true, Ordering::Acquire) {}
+    }
+
+    #[inline]
+    fn unacquire(&mut self) {
+        self.lock.store(false, Ordering::Release);
     }
 
     pub fn get_files(&mut self) -> Result<Vec<CpkFile>, Box<dyn Error>> {
@@ -106,18 +123,23 @@ impl<R> CpkReader<R> where R: Read + Seek {
         Ok(out)
     }
 
-    pub fn extract_file(&mut self, file: &CpkFile) -> Result<Vec<u8>, Box<dyn Error>> {
-        // println!("{}/{}, size: 0x{:x}/0x{:x}, ofs: 0x{:x}, user: {}", file.directory(), file.file_name(), file.file_size(), file.extract_size(), file.file_offset(), file.user_string());
+    #[inline]
+    pub fn extract_file(&self, file: &CpkFile) -> Result<FreeListNode, Box<dyn Error>> {
+        unsafe { &mut *(&raw const *self as *mut Self) }.extract_file_inner(file)
+    }
+
+    fn extract_file_inner(&mut self, file: &CpkFile) -> Result<FreeListNode, Box<dyn Error>> {
         if self.content_ofs == Self::DEFAULT_OFFSET { return Err(Box::new(CpkReaderError::GetFilesNotCalled)) }
+        self.acquire();
         self.stream.seek(SeekFrom::Start(self.content_ofs + file.file_offset()))?;
-        let mut out = Vec::with_capacity(file.file_size() as usize);
-        unsafe { out.set_len(out.capacity()) };
-        self.stream.read_exact(&mut out)?;
-        if self.decryption.is_some() && P5RDecryptor::is_encrypted(file) {
-            P5RDecryptor::decrypt_in_place(&mut out);
+        let mut out = self.free_list.allocate(file.file_size() as usize);
+        self.stream.read_exact(out.as_mut_slice())?;
+        self.unacquire();
+        if E::is_encrypted(file, out.as_slice()) {
+            E::decrypt_in_place(out.as_mut_slice());
         }
-        Ok(match LaylaDecompressor::is_compressed(&out) {
-            true => LaylaDecompressor::decompress(&out),
+        Ok(match LaylaDecompressor::is_compressed(out.as_slice()) {
+            true => LaylaDecompressor::decompress(out.as_slice(), &mut self.free_list),
             false => out
         })
     }
@@ -229,7 +251,7 @@ pub mod tests {
     use std::error::Error;
     use std::fs::File;
     use std::io::BufReader;
-    use crate::cpk::compress::layla::LaylaDecompressor;
+    use crate::cpk::encrypt::p5r::P5RDecryptor;
     use crate::cpk::reader::CpkReader;
 
     #[test]
@@ -340,24 +362,21 @@ pub mod tests {
     #[test]
     fn extract_p5r_c0001_002_00() -> Result<(), Box<dyn Error>> {
         let sample_path = "E:/SteamLibrary/steamapps/common/P5R/CPK/BASE.CPK";
-        // let expected_path = "D:/PERSONA5ROYAL/BASE.CPK/BATTLE/TABLE/VISUAL.TBL";
         let expected_path = "D:/PERSONA5ROYAL/BASE.CPK/MODEL/CHARACTER/0001/C0001_002_00.GMD";
         if !std::fs::exists(sample_path)? || !std::fs::exists(expected_path)? {
             return Ok(());
         }
-        let mut reader = CpkReader::new_p5r(BufReader::new(File::open(sample_path)?))?;
+        let mut reader = CpkReader::<_, P5RDecryptor>::new_with_encryption(
+            BufReader::new(File::open(sample_path)?))?;
         let files = reader.get_files()?;
         let mut file_lookup = HashMap::new();
         for file in &files {
             file_lookup.insert(format!("{}/{}", file.directory(), file.file_name()), file);
         }
         let joker_persona_5 = file_lookup.get("MODEL/CHARACTER/0001/C0001_002_00.GMD").unwrap();
-        // let joker_persona_5 = file_lookup.get("BATTLE/TABLE/VISUAL.TBL").unwrap();
         let joker_persona_5 = reader.extract_file(joker_persona_5)?;
-        std::fs::write("E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/SampleData/joker_export.GMD", joker_persona_5)?;
-        // std::fs::write("E:/PersonaMultiplayer/CriFsV2Lib/CriFsV2Lib.Tests/Assets/SampleData/VISUAL.TBL", joker_persona_5)?;
-        // let expected = std::fs::read(expected_path)?;
-        // assert_eq!(joker_persona_5, expected);
+        let expected = std::fs::read(expected_path)?;
+        assert_eq!(joker_persona_5, expected);
         Ok(())
     }
 }

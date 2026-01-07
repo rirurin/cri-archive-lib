@@ -8,8 +8,9 @@ use std::io::{BufReader, Read};
 // use std::hint::black_box;
 use criterion::{ criterion_group, criterion_main, Criterion };
 use cri_archive_lib::cpk::compress::layla::{LaylaDecompressor, LaylaDecompressorCursor};
-use cri_archive_lib::cpk::encrypt::table::TableDecryptor;
+use cri_archive_lib::cpk::encrypt::p5r::P5RDecryptor;
 use cri_archive_lib::cpk::file::CpkFile;
+use cri_archive_lib::cpk::free_list::FreeList;
 use cri_archive_lib::cpk::reader::CpkReader;
 
 fn read_compressed_layla_3d_model() -> Result<Vec<u8>, Box<dyn Error>> {
@@ -49,7 +50,8 @@ fn benchmark_layla_read_13(cursor: &mut LaylaDecompressorCursor, model_data: &[u
 }
 
 fn benchmark_layla_decompress(model_data: &[u8]) {
-    let _ = LaylaDecompressor::decompress(&model_data);
+    let mut allocator = FreeList::new();
+    let _ = LaylaDecompressor::decompress(&model_data, &mut allocator);
 }
 
 fn decrypt_table_little_init() -> Result<Vec<u8>, Box<dyn Error>> {
@@ -65,7 +67,8 @@ fn extract_joker_persona5() -> Result<(), Box<dyn Error>> {
     if !std::fs::exists(sample_path)? || !std::fs::exists(expected_path)? {
         return Ok(());
     }
-    let mut reader = CpkReader::new_p5r(BufReader::new(File::open(sample_path)?))?;
+    let mut reader = CpkReader::<_, P5RDecryptor>::new_with_encryption(
+        BufReader::new(File::open(sample_path)?))?;
     let files = reader.get_files()?;
     let mut file_lookup = HashMap::new();
     for file in &files {
@@ -76,7 +79,7 @@ fn extract_joker_persona5() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn extract_joker_persona5_exclusive(reader: &mut CpkReader<BufReader<File>>, file: &CpkFile) -> Result<(), Box<dyn Error>> {
+fn extract_joker_persona5_exclusive(reader: &mut CpkReader<BufReader<File>, P5RDecryptor>, file: &CpkFile) -> Result<(), Box<dyn Error>> {
     let _ = reader.extract_file(file)?;
     Ok(())
 }
@@ -139,21 +142,20 @@ fn criterion_benchmark(c: &mut Criterion) {
         "P5R: Joker Model Test", |b| b
             .iter(|| black_box(extract_joker_persona5())));
      */
-    /*
     let sample_path = "E:/SteamLibrary/steamapps/common/P5R/CPK/BASE.CPK";
-    let mut reader = CpkReader::new_p5r(BufReader::new(File::open(sample_path).unwrap())).unwrap();
+    let mut reader = CpkReader::<_, P5RDecryptor>::new_with_encryption(
+        BufReader::new(File::open(sample_path).unwrap())).unwrap();
     let files = reader.get_files().unwrap();
     let mut file_lookup = HashMap::new();
     for file in &files {
         file_lookup.insert(format!("{}/{}", file.directory(), file.file_name()), file);
     }
-    // let joker_persona_5 = file_lookup.get("MODEL/CHARACTER/0001/C0001_002_00.GMD").unwrap();
-    let bgm_awb = file_lookup.get("SOUND/BGM.AWB").unwrap();
+    let joker_persona_5 = file_lookup.get("MODEL/CHARACTER/0001/C0001_002_00.GMD").unwrap();
+    // let bgm_awb = file_lookup.get("SOUND/BGM.AWB").unwrap();
     c.bench_function(
-        // "Joker Persona 5", |b| b
-        "BGM AWB", |b| b
-            .iter(|| black_box(extract_joker_persona5_exclusive(&mut reader, bgm_awb))));
-    */
+        "Joker Persona 5", |b| b
+        // "BGM AWB", |b| b
+            .iter(|| black_box(extract_joker_persona5_exclusive(&mut reader, joker_persona_5))));
 }
 
 criterion_group!(benches, criterion_benchmark);

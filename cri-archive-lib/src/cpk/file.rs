@@ -33,3 +33,5 @@ impl CpkFile {
         Self { directory, file_name, file_offset, file_size, extract_size, user_string }
     }
 }
+
+unsafe impl Send for CpkFile {}

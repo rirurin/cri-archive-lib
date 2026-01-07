@@ -22,21 +22,15 @@ use core::arch::x86_64::{
 use core::arch::aarch64::{ uint8x16_t, vld1q_u8, vst1q_u8, veorq_u8 };
 
 use std::ptr::{ read_unaligned, write_unaligned };
+use crate::cpk::encrypt::data::FileDecryptor;
 use crate::cpk::file::CpkFile;
 
 #[derive(Debug)]
 pub struct P5RDecryptor;
 
-impl P5RDecryptor {
-    // Offset of encrypted data.
-    pub(crate) const ENCRYPTED_DATA_OFFSET: usize = 0x20;
-
-    // Number of bytes to decrypt.
-    const NUM_BYTES_TO_DECRYPT: usize = 0x400;
-
-    pub fn is_encrypted(file: &CpkFile) -> bool { file.user_string() == "CRI_CFATTR:ENCRYPT" }
-
-    pub fn decrypt_in_place(input: &mut [u8]) {
+impl FileDecryptor for P5RDecryptor {
+    fn is_encrypted(file: &CpkFile, _stream: &[u8]) -> bool { file.user_string() == "CRI_CFATTR:ENCRYPT" }
+    fn decrypt_in_place(input: &mut [u8]) {
         // Files shorter than 0x820 can't be "decrypted".
         // They aren't "encrypted" to begin with, even if they are marked with ENCRYPT user string
         if input.len() <= 0x820 { return };
@@ -52,6 +46,14 @@ impl P5RDecryptor {
         }
         Self::decrypt_in_place_u64(input);
     }
+}
+
+impl P5RDecryptor {
+    // Offset of encrypted data.
+    pub(crate) const ENCRYPTED_DATA_OFFSET: usize = 0x20;
+
+    // Number of bytes to decrypt.
+    const NUM_BYTES_TO_DECRYPT: usize = 0x400;
 
     #[cfg(target_arch = "x86_64")]
     const NEXT_BLOCK_AVX2: usize = Self::NUM_BYTES_TO_DECRYPT / size_of::<__m256i>(); // 0x20

@@ -9,12 +9,14 @@ pub mod cpk {
         pub mod layla;
     }
     pub mod encrypt {
+        pub mod data;
         #[cfg(feature = "cpk_encryption_p5r")]
         pub mod p5r;
         #[cfg(feature = "cpk_encryption_table")]
         pub mod table;
     }
     pub mod file;
+    pub mod free_list;
     pub mod reader;
     pub mod header;
 }

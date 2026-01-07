@@ -43,6 +43,7 @@
 //! If the max value is returned, we read next number of bits in fib sequence, up to 8 bits. Then
 //! read 8s until max value no longer returned.
 
+use crate::cpk::free_list::{FreeList, FreeListNode};
 use crate::from_slice;
 use crate::utils::slice::FromSlice;
 use crate::utils::endianness::LittleEndian;
@@ -316,14 +317,12 @@ impl LaylaDecompressor {
         from_slice!(input, u64, LittleEndian) == LAYLA_HEADER_MAGIC
     }
 
-    pub fn decompress(input: &[u8]) -> Vec<u8> {
+    pub fn decompress(input: &[u8], free_list: &mut FreeList) -> FreeListNode {
         let header = LaylaHeader::from_stream(input);
-        let mut result = Vec::with_capacity(
-            header.uncompressed_size as usize + Self::UNCOMPRESSED_DATA_SIZE);
-        unsafe { result.set_len(result.capacity()) };
+        let mut result = free_list.allocate(header.uncompressed_size as usize + Self::UNCOMPRESSED_DATA_SIZE);
         let cmp_slice = unsafe { std::slice::from_raw_parts(
             input.as_ptr().add(size_of::<LaylaHeader>()), input.len() - size_of::<LaylaHeader>()) };
-        let mut dcmp_impl = LaylaDecompressorImpl::new(header, cmp_slice, &mut result);
+        let mut dcmp_impl = LaylaDecompressorImpl::new(header, cmp_slice, result.as_mut_slice());
         dcmp_impl.decompress();
         result
     }
@@ -336,6 +335,7 @@ pub mod tests {
     use std::io::{Read, Write};
     use std::time::Instant;
     use crate::cpk::compress::layla::{LaylaDecompressor, LaylaDecompressorCursor};
+    use crate::cpk::free_list::FreeList;
 
     #[test]
     fn cursor_read_stream_1bit() -> Result<(), Box<dyn Error>> {
@@ -420,7 +420,8 @@ pub mod tests {
         }
         let mut layla_data = vec![];
         File::open(layla_table)?.read_to_end(&mut layla_data)?;
-        let result = LaylaDecompressor::decompress(&layla_data);
+        let mut allocator = FreeList::new();
+        let result = LaylaDecompressor::decompress(&layla_data, &mut allocator);
         let mut expected_data = vec![];
         File::open(expected)?.read_to_end(&mut expected_data)?;
         assert_eq!(&result, &expected_data);
