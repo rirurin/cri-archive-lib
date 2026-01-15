@@ -77,8 +77,11 @@ fn extract<P0: AsRef<Path>, P1: AsRef<Path> + Send + Sync>(input: P0, output: P1
     files.into_par_iter().try_for_each(|f| {
         progress.set_current_file(&f);
         let bytes = cpk.extract_file(&f).map_err(|e| ErrorWrapper::new(e))?;
-        std::fs::write(output.as_ref().join(
-            format!("{}/{}", f.directory(), f.file_name())), bytes)
+        let path = match f.directory() {
+            "" => f.file_name().to_owned(),
+            _ => format!("{}/{}", f.directory(), f.file_name())
+        };
+        std::fs::write(output.as_ref().join(path), bytes)
             .map_err(|e| ErrorWrapper::new(Box::new(e)))?;
         progress.read_one();
         Ok::<(), ErrorWrapper>(())
