@@ -13,7 +13,7 @@
 //! - u16 RowSize: 0x1a,
 //! - u32 RowCount: 0x1c,
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::ptr::NonNull;
 use crate::from_slice;
 use crate::utils::endianness::BigEndian;
@@ -39,7 +39,6 @@ impl From<u8> for StringEncoding {
 pub(crate) static HEADER_OFFSET: u32 = 0x8;
 pub static HEADER_SIZE: usize = 0x20;
 
-#[derive(Debug)]
 //pub(crate) struct TableHeader<'a> {
 pub struct TableHeader {
     /// Byte slice associated with this header instance. It's assumed that the slice is large
@@ -53,7 +52,7 @@ impl TableHeader {
     }
 
     pub fn size(&self) -> u32 {
-        from_slice!(unsafe { self.owner.as_ref() }, u32, 0x8)
+        from_slice!(unsafe { self.owner.as_ref() }, u32, 0x4)
     }
 
     pub fn encoding(&self) -> StringEncoding {
@@ -83,6 +82,13 @@ impl TableHeader {
 
     pub fn row_count(&self) -> u32 {
         from_slice!(unsafe { self.owner.as_ref() }, u32, 0x1c)
+    }
+}
+
+impl Debug for TableHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TableHeader {{ size: 0x{:x}, encoding: {:?}, row_offset: 0x{:x}, string_pool_offset: 0x{:x}, data_pool_offset: 0x{:x}, column_count: 0x{:x}, row_size: 0x{:x}, row_count: 0x{:x} }}",
+               self.size(), self.encoding(), self.rows_offset(), self.string_pool_offset(), self.data_pool_offset(), self.column_count(), self.row_size(), self.row_count())
     }
 }
 

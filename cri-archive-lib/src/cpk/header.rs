@@ -47,8 +47,8 @@ impl HighTable<StringPoolFast> {
         cursor.set_position(crate::schema::header::HEADER_SIZE as u64);
         let columns = Column::new_list(&mut cursor, &header)?;
         let str_raw = &alloc[header.string_pool_offset() as usize..header.data_pool_offset() as usize];
-        let strings = unsafe { StringPoolFast::new_borrowed(&str_raw)? };
         let rows = Row::new_list(&mut cursor, &header, columns.as_ref())?;
+        let strings = unsafe { StringPoolFast::new_borrowed(&str_raw, &header)? };
         Ok(Self { alloc, header, columns, strings, rows })
     }
 }

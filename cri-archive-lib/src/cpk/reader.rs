@@ -379,4 +379,15 @@ pub mod tests {
         assert_eq!(joker_persona_5, expected);
         Ok(())
     }
+
+    #[test]
+    fn get_files_p4g() -> Result<(), Box<dyn Error>> {
+        let sample_path = "E:/SteamLibrary/steamapps/common/Persona 4 Golden/data.cpk";
+        if !std::fs::exists(sample_path)? {
+            return Ok(());
+        }
+        let mut reader = CpkReader::new(BufReader::new(File::open(sample_path)?))?;
+        let _files = reader.get_files()?;
+        Ok(())
+    }
 }

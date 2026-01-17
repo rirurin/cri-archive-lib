@@ -226,7 +226,7 @@ pub mod tests {
                 let mut acf_md5 = Vec::with_capacity(hash.length as usize);
                 unsafe { acf_md5.set_len(acf_md5.capacity()) };
                 handle.read_exact(&mut acf_md5)?;
-                println!("{:?}", acf_md5);
+                assert_eq!(acf_md5, &[236, 103, 97, 106, 90, 25, 172, 164, 161, 234, 209, 75, 242, 34, 227, 209]);
             }
         }
         Ok(())
