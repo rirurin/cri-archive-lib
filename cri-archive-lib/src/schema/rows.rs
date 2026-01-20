@@ -37,6 +37,14 @@ impl DataValue {
     pub fn is_none(&self) -> bool {
         self.length == 0
     }
+
+    pub fn get_offset(&self) -> u32 {
+        self.offset
+    }
+
+    pub fn get_length(&self) -> u32 {
+        self.length
+    }
 }
 
 #[derive(Debug)]

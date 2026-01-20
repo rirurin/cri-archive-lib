@@ -1,5 +1,7 @@
 #[cfg(feature = "acb")]
 pub mod acb {
+    pub mod error;
+    pub mod header;
     pub mod reader;
 }
 #[cfg(feature = "cpk")]
